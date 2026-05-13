@@ -111,7 +111,15 @@ struct scene_structure : cgp::scene_inputs_generic {
 	mesh_drawable terrain;
 	mesh_drawable grass;
 
+	float const wind_speed = 4.0f; // m/s
+	float const wind_scale = 250.0f;
+	vec2 wind_offset = {0.0f, 0.0f};
 	vec3 const fog_color = vec3(0.1, 0.2, 0.2); // Light gray fog color
+	float vel = 0.0f;
+	float const base_acc = 2.0f;
+	float const g = 7.5f; // Gravity strength (adjust as needed)
+	float const friction_coeff = 0.5f;
+	vec3 smoothed_normal = {0.0f, 0.0f, 1.0f}; // Normal lissé pour éviter les micro-mouvements sur les terrains accidentés
 
 	// Dans scene_structure :
 	std::vector<ActiveChunk> active_chunks;

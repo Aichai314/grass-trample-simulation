@@ -167,14 +167,14 @@ void scene_structure::update_chunks()
     }
 }
 
-void scene_structure::update_grass_trampling(vec3 const& barrel_front_dir, vec3 const& barrel_right_dir) 
+void scene_structure::update_grass_trampling(vec3 const& barrel_moving_dir, vec3 const& barrel_right_dir) 
 {
     // Le rayon du tonneau converti en nombre de "pixels" sur la texture
     float radius_pixels = (crush_radius / chunk_size) * (resolution - 1);
     
     // L'angle du mouvement (en radians). Puisqu'on est en GL_RGB32F,
     // on peut stocker des valeurs négatives sans problème !
-    float trample_angle = std::atan2(barrel_front_dir.y, barrel_front_dir.x);
+    float trample_angle = std::atan2(barrel_moving_dir.y, barrel_moving_dir.x);
 
     for (ActiveChunk& chunk : active_chunks) {
         bool modified_this_frame = false;
@@ -201,7 +201,7 @@ void scene_structure::update_grass_trampling(vec3 const& barrel_front_dir, vec3 
             for (int x = x_min; x <= x_max; ++x) {
 
                 vec2 rel_pos = vec2(x - px, y - py); // Position relative du pixel par rapport au centre du tonneau
-				float front = dot(rel_pos, barrel_front_dir.xy());
+				float front = dot(rel_pos, barrel_moving_dir.xy());
 				float right = dot(rel_pos, barrel_right_dir.xy());
 				float custom_squared_dist = 3.5f*front*front + right*right; // Distance personnalisée qui tient compte de la direction du mouvement
 				float radius_squared = radius_pixels*radius_pixels;
@@ -352,23 +352,42 @@ void scene_structure::display_frame()
     camera_projection.aspect_ratio = window.aspect_ratio();
 
 	// Compute movement of the barrel with keyboard inputs
-    float speed = 2.0f;
-	float rotation_speed = Pi/2; // en radians par seconde
+	float const rotation_speed = Pi/2; // en radians par seconde
     float dt = timer.update();
 	bool moved = false;
+
+	float eps = barrel_radius;
+    float bx = barrel.model.translation.x;
+    float by = barrel.model.translation.y;
+    float h_gauche = get_terrain_height(bx - eps, by);
+    float h_droite = get_terrain_height(bx + eps, by);
+    float h_bas    = get_terrain_height(bx, by - eps);
+    float h_haut   = get_terrain_height(bx, by + eps);
+	// Approximate terrain normal using central differences
+    vec3 raw_normal = normalize(vec3(h_gauche - h_droite, h_bas - h_haut, 2.0f * eps));
+	smoothed_normal = normalize(cgp::interpolation_linear(0.25f, smoothed_normal, raw_normal));
 
 	vec3 barrel_right_dir = -barrel.model.rotation.matrix_col_y(); // direction droite du tonneau	
 	vec3 barrel_front_dir = normalize(cross({0,0,1}, barrel_right_dir)); // direction avant du tonneau	
 
+	float acc = g*dot(smoothed_normal, barrel_front_dir) - friction_coeff * vel; // Friction proportionnelle à la vitesse (force de frottement = -k * v)
     if (inputs.keyboard.is_pressed(GLFW_KEY_W) || inputs.keyboard.is_pressed(GLFW_KEY_Z)) {
-		barrel.model.translation += barrel_front_dir*speed * dt;
-		barrel.model.rotation = rotation_transform::from_axis_angle(barrel_right_dir, -speed * dt / barrel_radius) * barrel.model.rotation;
-		moved = true;
+		acc += base_acc;
     }
     if (inputs.keyboard.is_pressed(GLFW_KEY_S)) {
-		barrel.model.translation -= barrel_front_dir*speed * dt;
-		barrel.model.rotation = rotation_transform::from_axis_angle(barrel_right_dir, speed * dt / barrel_radius) * barrel.model.rotation;
-		barrel_front_dir = -barrel_front_dir; // Inverser la direction avant pour le calcul de l'écrasement
+		acc += -base_acc;
+	}
+
+	// Friction statique:
+	bool no_input = !(inputs.keyboard.is_pressed(GLFW_KEY_W) || inputs.keyboard.is_pressed(GLFW_KEY_Z) || inputs.keyboard.is_pressed(GLFW_KEY_S));
+	if (no_input && std::abs(vel) < 0.2f && std::abs(dot(smoothed_normal, barrel_front_dir)) < 0.05f) {
+        vel = 0.0f; // On force l'arrêt complet
+        acc = 0.0f; // On annule la micro-gravité résiduelle
+    }
+	vel += acc * dt;
+	if (std::abs(vel) > 0.0001f) {
+		barrel.model.translation += barrel_front_dir*vel * dt;
+		barrel.model.rotation = rotation_transform::from_axis_angle(barrel_right_dir, -vel * dt / barrel_radius) * barrel.model.rotation;
 		moved = true;
 	}
     if (inputs.keyboard.is_pressed(GLFW_KEY_A) || inputs.keyboard.is_pressed(GLFW_KEY_Q)) {
@@ -385,34 +404,35 @@ void scene_structure::display_frame()
 	// ==========================================
     // Barrel alignment with the terrain normal laterally
     // ==========================================
-    float eps = 0.1f;
-    float bx = barrel.model.translation.x;
-    float by = barrel.model.translation.y;
-    float h_gauche = get_terrain_height(bx - eps, by);
-    float h_droite = get_terrain_height(bx + eps, by);
-    float h_bas    = get_terrain_height(bx, by - eps);
-    float h_haut   = get_terrain_height(bx, by + eps);
-	// Approximate terrain normal using central differences
-    vec3 terrain_normal = vec3(h_gauche - h_droite, h_bas - h_haut, 2.0f * eps);
-
     
 	vec3 barrel_right = -barrel.model.rotation.matrix_col_y();
 	vec3 up = vec3(0, 0, 1);
 	vec3 barrel_front = normalize(cross(up, barrel_right));
 	vec3 barrel_up = normalize(up - dot(up, barrel_right) * barrel_right); // axe "Haut" du tonneau avant correction
 	// Projection du normal sur le plan défini par l'axe droit du tonneau
-	vec3 proj_normal = normalize(terrain_normal - dot(terrain_normal, barrel_front)*barrel_front);
+	vec3 proj_normal = normalize(smoothed_normal - dot(smoothed_normal, barrel_front)*barrel_front);
 
     rotation_transform alignment = rotation_transform::from_frame_transform(barrel_up, barrel_front, proj_normal, barrel_front);
     barrel.model.rotation = alignment * barrel.model.rotation;
     // ==========================================
 
 	if (moved) {
+		if (vel < 0.0f) {
+			barrel_front_dir = -barrel_front_dir; // Inverser la direction avant pour le calcul de l'écrasement
+		}
 		update_grass_trampling(barrel_front_dir, barrel_right_dir);
 	}
 	update_chunks();
 
     camera_control.update_target_position(barrel.model.translation);
+
+	// Compute wind offset for grass animation
+	vec2 wind_dir = {std::cos(timer.t / 63.45f), std::sin(timer.t / 49.59f)};
+	wind_offset += wind_dir * wind_speed * dt;
+	// Use fmod to wrap the wind offset within the wind scale,
+	// creating a seemless looping effect and avoiding precision issues with large offsets
+	wind_offset.x = std::fmod(wind_offset.x, wind_scale);
+	wind_offset.y = std::fmod(wind_offset.y, wind_scale);
 
 	environment.camera_projection = camera_projection.matrix();
 	environment.camera_view = camera_control.camera_model.matrix_view();
@@ -440,7 +460,9 @@ void scene_structure::display_frame()
 		glUseProgram(grass.shader.id);
 		opengl_uniform(grass.shader, "chunk_position", chunk.world_position);
 		opengl_uniform(grass.shader, "chunk_size", chunk_size);
-		opengl_uniform(grass.shader, "time", timer.t);
+		opengl_uniform(grass.shader, "timemodpi", std::fmod(timer.t, 2.0f*Pi));
+		opengl_uniform(grass.shader, "wind_dir", wind_dir);
+		opengl_uniform(grass.shader, "wind_offset", wind_offset);
     	draw(grass, environment, N_instances, false);
 	}
 

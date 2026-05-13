@@ -26,7 +26,9 @@ uniform mat4 projection; // Projection (perspective or orthogonal) matrix of the
 uniform sampler2D heightmap; // Texture containing the heightmap of the terrain (used to displace the grass blades)
 uniform sampler2D size_map; // Texture containing the size variation of the grass blades (used to scale the grass blades)
 uniform sampler2D windmap; // Texture containing the wind information (used to bend the grass blades)
-uniform float time;
+uniform float timemodpi; // Time in seconds, modulo 2*Pi, used for the wind animation
+uniform vec2 wind_offset; // Offset to animate the wind effect on the grass blades
+uniform vec2 wind_dir; // Direction of the wind (vector in the XY plane)
 uniform vec2 chunk_position; // position of the chunk in the world (used to displace the grass blades)
 uniform float chunk_size; // size of the chunk (used to displace the grass blades)
 
@@ -86,29 +88,19 @@ void main()
     /* Wind bending */
     // ---------------
     vec2 world_pos = chunk_position + instance_position.xy;
+    float wind_scale = 250.0; // One wind "wave" every 250 world units
+    vec2 wind_uv = (world_pos + wind_offset) / wind_scale;
 
-    // 2. Paramétrage de la rafale de vent
-    float wind_scale = 250.0; // Une image de bruit couvrira 250 mètres de terrain
-    vec2 wind_dir = vec2(cos(time/63.45), sin(time/49.59)); // Direction du vent
-    float wind_speed = 4; // Vitesse de déplacement du vent en m/s
-
-    // 3. Calcul des UVs "Monde" qui glissent avec le temps
-    // On divise world_pos par wind_scale pour étirer la texture sur plusieurs chunks
-    vec2 wind_uv = (world_pos + wind_dir * time * wind_speed) / wind_scale;
-
-    // 4. Lecture de la force du vent (entre 0.0 et 1.0)
     float wind_force = texture(windmap, wind_uv).r;
-
-    // 5. Application
     float bend_amount = (wind_force * wind_force) * 2 * (pos.z / top);
 
-    // On applique la courbure du vent par-dessus la courbure de l'écrasement
+    // We apply the bending as a rotation around an axis perpendicular to the wind direction and the vertical axis (Z)
     vec3 wind_axis = normalize(cross(vec3(0.0, 0.0, 1.0), vec3(wind_dir, 0.0)));
     pos = rotate_axis_angle(pos, wind_axis, bend_amount);
     n   = rotate_axis_angle(n, wind_axis, bend_amount);
 
     // random oscillation to add some more life to the grass blades
-    float oscillation = sin(time * 3.67 + instance_position.x * 472.26 + instance_position.y * 797.18) * 0.04;
+    float oscillation = sin(timemodpi * 4 + instance_position.x * 472.26 + instance_position.y * 797.18) * 0.04;
     pos += oscillation * bend_amount * n;
 
     // The position of the vertex in the world space - Add the offset related to the current instance
