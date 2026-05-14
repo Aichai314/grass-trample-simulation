@@ -258,12 +258,12 @@ void scene_structure::update_fireflies(float dt) {
     float const planar_speed = 0.5f;
     float const max_turn_angle = Pi / 6.0f; // Max 30 degrés de virage par seconde
 
-	if (norm(fireflies_center - vec3{barrel.model.translation.x, barrel.model.translation.y, 0.0f}) > 2.0f) {
-		fireflies_target_velocity = (vec3{barrel.model.translation.x, barrel.model.translation.y, 0.0f} - fireflies_center)/2.0f;
+	if (norm(fireflies_center - vec3{barrel.model.translation.x, barrel.model.translation.y, 0.0f}) > fog_radius/10.0f) {
+		fireflies_target_velocity = (vec3{barrel.model.translation.x, barrel.model.translation.y, 0.0f} - fireflies_center)/(fog_radius/10.0f);
 	} else {
 		fireflies_target_velocity = vec3{0.0f, 0.0f, 0.0f};
 	}
-	fireflies_velocity = interpolation_linear(0.5f * dt, fireflies_velocity, fireflies_target_velocity);
+	fireflies_velocity = interpolation_linear(10.0f/fog_radius * dt, fireflies_velocity, fireflies_target_velocity);
 	fireflies_center += fireflies_velocity * dt;
     
     for(Firefly& f : fireflies) {
@@ -329,20 +329,13 @@ void scene_structure::update_fireflies(float dt) {
         f.velocity = interpolation_linear(inertia * dt, f.velocity, f.target_velocity);
 
 		// ------------------- Repulsion from barrel ----------------
-		vec3 to_barrel = {
-            barrel.model.translation.x - (f.position.x+fireflies_center.x), 
-            barrel.model.translation.y - (f.position.y+fireflies_center.y),
-			barrel.model.translation.z - f.position.z
-        };
+		vec3 to_barrel = barrel.model.translation - (f.position + fireflies_center);
         float dist_to_barrel = cgp::norm(to_barrel);
-
         if (dist_to_barrel < 1.5f) {
-            
             to_barrel = to_barrel / dist_to_barrel;
-            float magnetic_strength = planar_speed / (dist_to_barrel) * 8.0f; // Stronger repulsion when closer
-            
+            float repulsion_strength = planar_speed / (dist_to_barrel) * 8.0f; // Stronger repulsion when closer
             // We add a velocity change that pushes the firefly away from the barrel
-            f.velocity -= to_barrel * magnetic_strength * dt;
+            f.velocity -= to_barrel * repulsion_strength * dt;
         }
 
         f.position += f.velocity * dt;
