@@ -53,6 +53,13 @@ struct PendingTask {
     std::future<Chunk> future_data;
 };
 
+struct Firefly {
+    cgp::vec3 position; // According to the center of the swarm
+    cgp::vec3 velocity;
+    cgp::vec3 target_velocity;
+    float time_since_turn;
+};
+
 // The structure of the custom scene
 struct scene_structure : cgp::scene_inputs_generic {
 	
@@ -66,6 +73,7 @@ struct scene_structure : cgp::scene_inputs_generic {
 
 	void update_chunks();
 	void update_grass_trampling(vec3 const& barrel_front_dir, vec3 const& barrel_right_dir);
+	void update_fireflies(float dt);
 
 	// ****************************** //
 	// Context
@@ -110,11 +118,11 @@ struct scene_structure : cgp::scene_inputs_generic {
 	float const crush_radius = 0.85f;
 	mesh_drawable terrain;
 	mesh_drawable grass;
+	mesh_drawable firefly;
 
 	float const wind_speed = 4.0f; // m/s
 	float const wind_scale = 250.0f;
 	vec2 wind_offset = {0.0f, 0.0f};
-	vec3 const fog_color = vec3(0.1, 0.2, 0.2); // Light gray fog color
 	float vel = 0.0f;
 	float const base_acc = 2.0f;
 	float const g = 7.5f; // Gravity strength (adjust as needed)
@@ -125,10 +133,20 @@ struct scene_structure : cgp::scene_inputs_generic {
 	std::vector<ActiveChunk> active_chunks;
 	std::unordered_map<ChunkIndex, Chunk, ChunkIndexHash> terrain_memory;
 	std::vector<PendingTask> pending_tasks;
+	
 	float const chunk_size = 10.0f;
-	int const N_chunks = 5; // number of chunks in each direction (total number of chunks = N_chunks^2)
+	static const int N_chunks = 5; // number of chunks in each direction (total number of chunks = N_chunks^2)
 	int const resolution = 64; // resolution of the heightmap (number of pixels per chunk)
 	int const N_instances = 80000; // number of grass instances per chunk
+	static const int N_fireflies = N_chunks * N_chunks * 10; // number of fireflies in the scene (adjust as needed)
+	std::array<Firefly, N_fireflies> fireflies;
+	cgp::numarray<vec3> firefly_positions; // positions des lucioles pour le VBO
+	cgp::numarray<vec2> firefly_scales;
+	vec3 fireflies_center = {0.0f, 0.0f, 0.0f}; // Center of the firefly swarm
+	vec3 fireflies_velocity = {0.0f, 0.0f, 0.0f}; // Velocity of the firefly swarm
+	vec3 fireflies_target_velocity = {0.0f, 0.0f, 0.0f};
+	vec3 const fog_color = vec3(0.1, 0.2, 0.2); // Light gray fog color
+	float const fog_radius = (N_chunks/2)*chunk_size; // Distance at which the fog is fully opaque
 
 
 	// ****************************** //

@@ -167,6 +167,34 @@ void scene_structure::update_chunks()
     }
 }
 
+bool is_chunk_visible(vec3 const& cam_pos, vec3 const& cam_front, vec2 const& chunk_world_pos, float chunk_size) {
+    vec3 chunk_center = {chunk_world_pos.x, chunk_world_pos.y, 0.0f};
+    vec3 to_chunk = chunk_center - cam_pos;
+    float distance = norm(to_chunk);
+    float chunk_bounding_radius = chunk_size * 0.75f; // Sphere radius that bounds the chunk
+    
+    // CONE CULLING
+    to_chunk = to_chunk / distance;
+    float cos_angle = dot(to_chunk, cam_front);
+
+    // Supposing a 50° field of view (so 25° on each side).
+    // We take some margin with 35° to avoid pop-in.
+    float const cos_35_deg = 0.819f;
+
+	if (distance < chunk_bounding_radius) {
+		return true; // The chunk is so close that it can be visible even if it's outside the camera cone
+	}
+    
+    // Tolerance for the closest chunks
+    float apparent_size_tolerance = chunk_bounding_radius / distance;
+
+    if (cos_angle < (cos_35_deg - apparent_size_tolerance)) {
+        return false;
+    }
+
+    return true;
+}
+
 void scene_structure::update_grass_trampling(vec3 const& barrel_moving_dir, vec3 const& barrel_right_dir) 
 {
     // Le rayon du tonneau converti en nombre de "pixels" sur la texture
@@ -226,6 +254,105 @@ void scene_structure::update_grass_trampling(vec3 const& barrel_moving_dir, vec3
     }
 }
 
+void scene_structure::update_fireflies(float dt) {
+    float const planar_speed = 0.5f;
+    float const max_turn_angle = Pi / 6.0f; // Max 30 degrés de virage par seconde
+
+	if (norm(fireflies_center - vec3{barrel.model.translation.x, barrel.model.translation.y, 0.0f}) > 2.0f) {
+		fireflies_target_velocity = (vec3{barrel.model.translation.x, barrel.model.translation.y, 0.0f} - fireflies_center)/2.0f;
+	} else {
+		fireflies_target_velocity = vec3{0.0f, 0.0f, 0.0f};
+	}
+	fireflies_velocity = interpolation_linear(0.5f * dt, fireflies_velocity, fireflies_target_velocity);
+	fireflies_center += fireflies_velocity * dt;
+    
+    for(Firefly& f : fireflies) {
+        f.time_since_turn += dt;
+
+        // 1. CHANGER DE CIBLE TOUTES LES SECONDES
+        if (f.time_since_turn > 1.0f) {
+            f.time_since_turn = cgp::rand_uniform(0.0f, 0.5f); // On ajoute un peu de chaos au chrono
+            
+            // On calcule l'angle actuel de la luciole dans le plan XY
+            float current_angle = std::atan2(f.velocity.y, f.velocity.x);
+            
+            // On ajoute un virage aléatoire "centré sur 0" (entre -90° et +90°)
+            float random_turn = cgp::rand_uniform(-max_turn_angle, max_turn_angle);
+			float heigh_variation = cgp::rand_uniform(-0.1f, 0.1f); // Variation d'altitude douce
+            float new_angle = current_angle + random_turn;
+            
+            // On définit la nouvelle vitesse cible
+            f.target_velocity = {
+                std::cos(new_angle) * planar_speed,
+                std::sin(new_angle) * planar_speed,
+                f.velocity.z + heigh_variation
+            };
+        }
+		// ------------------ Stabalize altitude ----------------
+        float ground_h = get_terrain_height(f.position.x + fireflies_center.x, f.position.y + fireflies_center.y);
+        float min_h = ground_h + 0.6f;
+        float max_h = ground_h + 3.0f;
+        
+        if (f.position.z < min_h) {
+            f.target_velocity.z = (min_h - f.position.z) * 2.0f; 
+        } else if (f.position.z > max_h) {
+            f.target_velocity.z = (max_h - f.position.z) * 1.0f; // Gentler push downwards 
+        }
+
+		// ------------------ Stay in the fog area ----------------
+        vec2 to_center = { -f.position.x, -f.position.y };
+		float dist_to_center = norm(to_center);
+        float recall_radius = fog_radius - 5.0f;
+
+        if (dist_to_center > recall_radius) {
+            
+            to_center = to_center / dist_to_center;
+            
+            // Ideal direct return velocity towards the center
+            vec2 direct_return_vel = to_center * planar_speed * (dist_to_center - recall_radius);
+
+            float return_force = (dist_to_center - recall_radius) * 1.5f * dt;
+            // We ensure that the lerp coeff doen't exceed 1.0f
+            return_force = std::min(return_force, 1.0f); 
+
+            f.target_velocity.x = interpolation_linear(return_force, f.target_velocity.x, direct_return_vel.x);
+            f.target_velocity.y = interpolation_linear(return_force, f.target_velocity.y, direct_return_vel.y);
+        } else {
+			// We normalize the xy target_velocity to maintain a constant planar speed, while keeping the z component free for altitude adjustments
+			vec2 xy_vel = {f.target_velocity.x, f.target_velocity.y};
+			xy_vel = normalize(xy_vel) * planar_speed;
+			f.target_velocity.x = xy_vel.x;
+			f.target_velocity.y = xy_vel.y;
+		}
+
+        float inertia = 2.5f; // Vitesse à laquelle elle tourne vers sa cible
+        f.velocity = interpolation_linear(inertia * dt, f.velocity, f.target_velocity);
+
+		// ------------------- Repulsion from barrel ----------------
+		vec3 to_barrel = {
+            barrel.model.translation.x - (f.position.x+fireflies_center.x), 
+            barrel.model.translation.y - (f.position.y+fireflies_center.y),
+			barrel.model.translation.z - f.position.z
+        };
+        float dist_to_barrel = cgp::norm(to_barrel);
+
+        if (dist_to_barrel < 1.5f) {
+            
+            to_barrel = to_barrel / dist_to_barrel;
+            float magnetic_strength = planar_speed / (dist_to_barrel) * 8.0f; // Stronger repulsion when closer
+            
+            // We add a velocity change that pushes the firefly away from the barrel
+            f.velocity -= to_barrel * magnetic_strength * dt;
+        }
+
+        f.position += f.velocity * dt;
+    }
+	for (int i = 0; i < N_fireflies; ++i) {
+		firefly_positions[i] = fireflies[i].position + fireflies_center;
+	}
+	firefly.update_supplementary_data_on_gpu(firefly_positions, 4);
+}
+
 // Main initialization function called once at program startup
 // Sets up the camera, 3D scene elements, and the image animation system
 void scene_structure::initialize()
@@ -270,10 +397,10 @@ void scene_structure::initialize()
 	);
 	grass.material.phong.specular = 0.05f;
 
-	tree.initialize_data_on_gpu(mesh_load_file_obj(project::path + "assets/palm_tree/palm_tree.obj"));
-	tree.model.rotation = rotation_transform::from_axis_angle({ 1,0,0 }, Pi / 2.0f);
-	tree.texture.load_and_initialize_texture_2d_on_gpu(project::path + "assets/palm_tree/palm_tree.jpg", GL_REPEAT, GL_REPEAT);
-	tree.model.translation = {0,0, get_terrain_height(0, 0)};
+	// tree.initialize_data_on_gpu(mesh_load_file_obj(project::path + "assets/palm_tree/palm_tree.obj"));
+	// tree.model.rotation = rotation_transform::from_axis_angle({ 1,0,0 }, Pi / 2.0f);
+	// tree.texture.load_and_initialize_texture_2d_on_gpu(project::path + "assets/palm_tree/palm_tree.jpg", GL_REPEAT, GL_REPEAT);
+	// tree.model.translation = {0,0, get_terrain_height(0, 0)};
 
 	mesh barrel_mesh = mesh_load_file_obj(project::path + "assets/barrel/barrel.obj");
 	for(vec3 const& p : barrel_mesh.position) {
@@ -302,6 +429,25 @@ void scene_structure::initialize()
 		barrel.model.translation + vec3{-5,0,2} /* position of the camera in the 3D scene */,
 		barrel.model.translation /* targeted point in 3D scene */,
 		{0,0,1} /* direction of the "up" vector */);
+	
+	mesh quad_mesh = mesh_primitive_quadrangle({ -0.5f,0,0 }, { 0.5f,0,0 }, { 0.5f,0,1 }, { -0.5f,0,1 });
+	firefly.initialize_data_on_gpu(quad_mesh);
+	firefly.model.scaling = 0.2f;
+	firefly.shader.load(project::path + "shaders/firefly/firefly.vert.glsl", project::path + "shaders/firefly/firefly.frag.glsl");
+	firefly_positions.resize(N_fireflies);
+	firefly_scales.resize(N_fireflies);
+	float const spawn_radius = fog_radius * 0.7f;
+	for (int i=0; i < N_fireflies; ++i) {
+		fireflies[i].position = { cgp::rand_uniform(-spawn_radius, spawn_radius), cgp::rand_uniform(-spawn_radius, spawn_radius), cgp::rand_uniform(0.5f, 2.0f) };
+		fireflies[i].position.z += get_terrain_height(fireflies[i].position.x, fireflies[i].position.y);
+		firefly_positions[i] = fireflies[i].position; // On remplit le tableau de positions pour le VBO
+		fireflies[i].velocity = { cgp::rand_uniform(-1.0f, 1.0f), cgp::rand_uniform(-1.0f, 1.0f), cgp::rand_uniform(-0.5f, 0.5f) };
+		fireflies[i].target_velocity = fireflies[i].velocity;
+		fireflies[i].time_since_turn = cgp::rand_uniform(0.0f, 1.0f);
+		firefly_scales[i] = {cgp::rand_uniform(0.4f, 1.2f), 0};
+	}
+	firefly.initialize_supplementary_data_on_gpu(firefly_positions, /*location*/ 4, /*divisor: 1=per instance, 0=per vertex*/ 1);
+	firefly.initialize_supplementary_data_on_gpu(firefly_scales, /*location*/ 5, /*divisor: 1=per instance, 0=per vertex*/ 1);
 
 	grass_structure grass_struct = grass_structure(0.4f, 0.025f);
 	
@@ -439,6 +585,7 @@ void scene_structure::display_frame()
 	environment.light = camera_control.camera_model.position();
 	environment.background_color = fog_color;
 	environment.uniform_generic.uniform_vec3["fog_color"] = fog_color;
+	environment.uniform_generic.uniform_float["fog_radius"] = fog_radius;
 	
 
 	// Draw the 3D reference frame axes if enabled
@@ -446,10 +593,16 @@ void scene_structure::display_frame()
 		draw(global_frame, environment);
 
 	// Draw all the shapes
-	draw(tree, environment);
+	//draw(tree, environment);
 	draw(barrel, environment);
 
 	for (const ActiveChunk& chunk : active_chunks) {
+		// Culling: Skip drawing this chunk if it's not visible in the camera's view
+		if (!is_chunk_visible(camera_control.camera_model.position(), camera_control.camera_model.front(),
+		chunk.world_position, chunk_size)) {
+            continue; 
+        }
+
 		terrain.model.translation = {chunk.world_position.x, chunk.world_position.y, 0.0f};
 
 		terrain.supplementary_texture["heightmap"] = chunk.heightmap;
@@ -466,9 +619,36 @@ void scene_structure::display_frame()
     	draw(grass, environment, N_instances, false);
 	}
 
+	update_fireflies(dt);
+	// Enable use of alpha component as color blending for transparent elements
+	//  alpha = current_color.alpha
+	//  new color = previous_color * alpha + current_color
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+
+	// Disable depth buffer writing
+	//  - Transparent elements cannot use depth buffer
+	//  - They are supposed to be displayed from farthest to nearest elements but
+	//  here it is not necessary since we simply add colors
+	glDepthMask(false);
+
+	auto const& camera = camera_control.camera_model;
+
+	// Re-orient the firefly shape to always face the camera direction
+	vec3 const cam_right = camera.right();
+	vec3 const cam_up = camera.up();
+	// Rotation such that the firefly follows the right-vector of the camera, while pointing toward the z-direction
+	rotation_transform R = rotation_transform::from_frame_transform({ 1,0,0 }, { 0,0,1 }, cam_right, cam_up);
+	firefly.model.rotation = R;
+	draw(firefly, environment, N_fireflies, false);
+
+	// Don't forget to re-activate the depth-buffer write
+	glDepthMask(true);
+	glDisable(GL_BLEND);
+
 	if (gui.display_wireframe) {
 		draw_wireframe(terrain, environment);
-		draw_wireframe(tree, environment);
+		// draw_wireframe(tree, environment);
 		draw_wireframe(barrel, environment);
 	}
 

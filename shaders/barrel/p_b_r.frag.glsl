@@ -36,6 +36,7 @@ uniform mat4 view;       // View matrix (rigid transform) of the camera - to com
 
 uniform vec3 light; // position of the light
 uniform vec3 fog_color;
+uniform float fog_radius;
 
 
 // Coefficients of phong illumination model
@@ -148,7 +149,7 @@ void main()
     vec3 ambient_term = material.phong.ambient * albedo; // On garde un peu de lumière d'ambiance
 
     vec3 color_shading = ambient_term + diffuse_term + specular_term;
-    float af = min(length(fragment.position-camera_position)/20.0, 1);
+    float af = min(length(fragment.position-camera_position)/fog_radius, 1);
     vec3 final_color = (1-af)*color_shading + af*fog_color;
 
     FragColor = vec4(final_color, material.alpha * color_image_texture.a);
