@@ -138,14 +138,17 @@ struct scene_structure : cgp::scene_inputs_generic {
 	static const int N_chunks = 5; // number of chunks in each direction (total number of chunks = N_chunks^2)
 	int const resolution = 64; // resolution of the heightmap (number of pixels per chunk)
 	int const N_instances = 80000; // number of grass instances per chunk
-	static const int N_fireflies = N_chunks * N_chunks * 10; // number of fireflies in the scene (adjust as needed)
+	static const int N_fireflies = N_chunks * N_chunks * 10; // number of fireflies in the scene
 	std::array<Firefly, N_fireflies> fireflies;
 	cgp::numarray<vec3> firefly_positions; // positions des lucioles pour le VBO
 	cgp::numarray<vec2> firefly_scales;
+	std::unordered_map<int, std::vector<Firefly*>> firefly_distr;
+	int const firefly_grid_side = static_cast<int>(N_chunks * chunk_size / 5.0f); // Number of cells on the side of the grid for spatial partitioning
 	vec3 fireflies_center = {0.0f, 0.0f, 0.0f}; // Center of the firefly swarm
 	vec3 fireflies_velocity = {0.0f, 0.0f, 0.0f}; // Velocity of the firefly swarm
 	vec3 fireflies_target_velocity = {0.0f, 0.0f, 0.0f};
 	vec3 const fog_color = vec3(0.1, 0.2, 0.2); // Light gray fog color
+	bool herd_behavior = false;
 	float const fog_radius = (N_chunks/2)*chunk_size; // Distance at which the fog is fully opaque
 
 

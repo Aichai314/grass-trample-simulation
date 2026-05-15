@@ -181,7 +181,7 @@ bool is_chunk_visible(vec3 const& cam_pos, vec3 const& cam_front, vec2 const& ch
     // We take some margin with 35° to avoid pop-in.
     float const cos_35_deg = 0.819f;
 
-	if (distance < chunk_bounding_radius) {
+	if (distance < chunk_bounding_radius * 2) {
 		return true; // The chunk is so close that it can be visible even if it's outside the camera cone
 	}
     
@@ -258,18 +258,36 @@ void scene_structure::update_fireflies(float dt) {
     float const planar_speed = 0.5f;
     float const max_turn_angle = Pi / 6.0f; // Max 30 degrés de virage par seconde
 
-	if (norm(fireflies_center - vec3{barrel.model.translation.x, barrel.model.translation.y, 0.0f}) > fog_radius/10.0f) {
+	if (norm(fireflies_center - vec3{barrel.model.translation.x, barrel.model.translation.y, 0.0f}) > fog_radius/2.0f) {
 		fireflies_target_velocity = (vec3{barrel.model.translation.x, barrel.model.translation.y, 0.0f} - fireflies_center)/(fog_radius/10.0f);
 	} else {
 		fireflies_target_velocity = vec3{0.0f, 0.0f, 0.0f};
 	}
 	fireflies_velocity = interpolation_linear(10.0f/fog_radius * dt, fireflies_velocity, fireflies_target_velocity);
 	fireflies_center += fireflies_velocity * dt;
+
+	
+	if (herd_behavior) {
+		// On vide les vecteurs mais on garde la mémoire allouée
+		for (auto& pair : firefly_distr) {
+			pair.second.clear(); 
+		}
+		for (Firefly& f : fireflies) {
+			int cell_x = static_cast<int>((f.position.x + N_chunks*chunk_size/2.0f) / (5.0f));
+			int cell_y = static_cast<int>((f.position.y + N_chunks*chunk_size/2.0f) / (5.0f));
+			// This prevents the creation on unnecessary cells for out-of-bound fireflies
+			// (should never happen since they are recalled before, but just in case)
+			cell_x = std::clamp(cell_x, 0, firefly_grid_side - 1);
+			cell_y = std::clamp(cell_y, 0, firefly_grid_side - 1);
+
+			int cell_index = cell_y * firefly_grid_side + cell_x;
+			firefly_distr[cell_index].push_back(&f);
+		}
+	}
     
     for(Firefly& f : fireflies) {
         f.time_since_turn += dt;
 
-        // 1. CHANGER DE CIBLE TOUTES LES SECONDES
         if (f.time_since_turn > 1.0f) {
             f.time_since_turn = cgp::rand_uniform(0.0f, 0.5f); // On ajoute un peu de chaos au chrono
             
@@ -302,14 +320,14 @@ void scene_structure::update_fireflies(float dt) {
 		// ------------------ Stay in the fog area ----------------
         vec2 to_center = { -f.position.x, -f.position.y };
 		float dist_to_center = norm(to_center);
-        float recall_radius = fog_radius - 5.0f;
+        float recall_radius = fog_radius - 7.0f;
 
         if (dist_to_center > recall_radius) {
             
             to_center = to_center / dist_to_center;
             
             // Ideal direct return velocity towards the center
-            vec2 direct_return_vel = to_center * planar_speed * (dist_to_center - recall_radius);
+            vec2 direct_return_vel = to_center * planar_speed * (dist_to_center - recall_radius + 1);
 
             float return_force = (dist_to_center - recall_radius) * 1.5f * dt;
             // We ensure that the lerp coeff doen't exceed 1.0f
@@ -328,9 +346,99 @@ void scene_structure::update_fireflies(float dt) {
         float inertia = 2.5f; // Vitesse à laquelle elle tourne vers sa cible
         f.velocity = interpolation_linear(inertia * dt, f.velocity, f.target_velocity);
 
+        // ==========================================
+        // DYNAMIQUE D'ESSAIM (BOIDS de Reynolds)
+        // ==========================================
+		if (herd_behavior) {
+			vec3 separation_steer = {0.0f, 0.0f, 0.0f};
+			vec3 alignment_steer  = {0.0f, 0.0f, 0.0f};
+			vec3 cohesion_center  = {0.0f, 0.0f, 0.0f};
+			int cohesion_count = 0;
+			int alignment_count = 0;
+
+			// Les 3 rayons imbriqués (ajustables selon la taille visuelle de tes lucioles)
+			float const cohesion_radius = 4.0f;
+			float const alignment_radius = 2.0f;
+			float const separation_radius = 0.3f;
+			float const w_separation = 1.0f; // Très fort : vital pour ne pas former un paquet informe
+			float const w_alignment  = 0.6f; // Moyen : crée un effet de "courant" fluide
+			float const w_cohesion   = 0.3f; // Faible : laisse les lucioles respirer et errer
+			float const panic_zone = 3.0f;
+
+			int cell_x = static_cast<int>((f.position.x + N_chunks*chunk_size/2.0f) / (5.0f));
+			int cell_y = static_cast<int>((f.position.y + N_chunks*chunk_size/2.0f) / (5.0f));
+			std::vector<int> cells_to_check;
+			for (int dx = -1; dx <= 1; ++dx) {
+				for (int dy = -1; dy <= 1; ++dy) {
+					int nx = cell_x + dx;
+					int ny = cell_y + dy;
+					if (nx >= 0 && nx < firefly_grid_side && ny >= 0 && ny < firefly_grid_side) {
+						cells_to_check.push_back(ny * firefly_grid_side + nx);
+					}
+				}
+			}
+			for (int cell_index : cells_to_check) {
+				if (firefly_distr.find(cell_index) == firefly_distr.end()) {
+					continue;
+				}
+				for (Firefly* const other : firefly_distr[cell_index]) {
+					// Ne pas se comparer avec soi-même !
+					if (&f == other) continue; 
+
+					vec3 diff = f.position - other->position;
+					float dist = cgp::norm(diff);
+
+					// Si l'autre luciole est dans mon champ de vision
+					if (dist < cohesion_radius) {
+						cohesion_count++;
+						cohesion_center += other->position;
+						
+						if (dist < alignment_radius) {
+							alignment_steer += other->velocity;
+							alignment_count++;
+
+							if (dist < separation_radius && dist > 0.001f) {
+								separation_steer += (diff / (dist * dist)); 
+							}
+						}
+					}
+				}
+			}
+
+			float border_panic = 0.0f;
+            if (dist_to_center > recall_radius - panic_zone) {
+                border_panic = (dist_to_center - (recall_radius - panic_zone)) / panic_zone;
+                border_panic = std::min(border_panic, 1.0f); // On cape à 1.0
+            }
+
+			if (cohesion_count > 0) {
+				// Moyennes
+				cohesion_center = cohesion_center / (float)cohesion_count;
+				if (alignment_count > 0) alignment_steer = alignment_steer / (float)alignment_count;
+				
+				// Calcul du vecteur de direction pour la cohésion
+				vec3 cohesion_steer = cohesion_center - f.position;
+
+				// Normalisation pour obtenir des forces pures
+				if (norm(alignment_steer) > 0.001f)  alignment_steer  = normalize(alignment_steer) * planar_speed;
+				if (norm(cohesion_steer) > 0.001f)   cohesion_steer   = normalize(cohesion_steer) * planar_speed;
+				if (norm(separation_steer) > 0.001f) separation_steer = normalize(separation_steer) * planar_speed;
+
+				// LES POIDS : C'est ici que tu définis la "personnalité" de ton essaim
+				float current_w_alignment = w_alignment * (1.0f - border_panic);
+				float current_w_cohesion  = w_cohesion  * (1.0f - border_panic);
+				float current_w_separation = w_separation + (border_panic * 2.0f);
+
+				// On applique ces comportements comme des forces sur la vélocité actuelle
+				f.velocity += (separation_steer * current_w_separation 
+							+ alignment_steer * current_w_alignment 
+							+ cohesion_steer * current_w_cohesion) * dt;
+			}
+		}
+
 		// ------------------- Repulsion from barrel ----------------
 		vec3 to_barrel = barrel.model.translation - (f.position + fireflies_center);
-        float dist_to_barrel = cgp::norm(to_barrel);
+        float dist_to_barrel = norm(to_barrel);
         if (dist_to_barrel < 1.5f) {
             to_barrel = to_barrel / dist_to_barrel;
             float repulsion_strength = planar_speed / (dist_to_barrel) * 8.0f; // Stronger repulsion when closer
@@ -439,6 +547,7 @@ void scene_structure::initialize()
 		fireflies[i].time_since_turn = cgp::rand_uniform(0.0f, 1.0f);
 		firefly_scales[i] = {cgp::rand_uniform(0.4f, 1.2f), 0};
 	}
+	firefly_distr.reserve(firefly_grid_side * firefly_grid_side); // On réserve de la place pour des cellules de 5m x 5m
 	firefly.initialize_supplementary_data_on_gpu(firefly_positions, /*location*/ 4, /*divisor: 1=per instance, 0=per vertex*/ 1);
 	firefly.initialize_supplementary_data_on_gpu(firefly_scales, /*location*/ 5, /*divisor: 1=per instance, 0=per vertex*/ 1);
 
@@ -652,6 +761,7 @@ void scene_structure::display_gui()
 {
 	ImGui::Checkbox("Frame", &gui.display_frame);
 	ImGui::Checkbox("Wireframe", &gui.display_wireframe);
+	ImGui::Checkbox("Herd behavior for fireflies", &herd_behavior);
 }
 
 
