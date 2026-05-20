@@ -15,10 +15,8 @@ float get_terrain_height(float x, float y) {
 }
 
 // Fonction pour créer une texture de hauteur pour un chunk donné
-// On retourne maintenant l'objet complet au lieu du GLuint
 grid_2D<vec3> create_heightmap(float chunk_world_x, float chunk_world_y, float chunk_size, int resolution = 64) 
-{   
-    // On utilise la structure native de CGP : une grille 2D de vec3
+{
     grid_2D<vec3> chunk_data;
     chunk_data.resize(resolution, resolution);
 
@@ -68,11 +66,11 @@ opengl_texture_image_structure initialize_texture(grid_2D<vec3> chunk_data)
 
 void scene_structure::update_chunks()
 {
-    // 1. Position exacte du tonneau
+    // Position exacte du tonneau
     float bx = barrel.model.translation.x;
     float by = barrel.model.translation.y;
 
-    // 2. Coordonnées du "Centre" logique (le chunk le plus proche du tonneau) en index
+    // Coordonnées du chunk le plus proche du tonneau en index
     int center_x = static_cast<int>(std::round(bx / chunk_size));
     int center_y = static_cast<int>(std::round(by / chunk_size));
 
@@ -132,13 +130,12 @@ void scene_structure::update_chunks()
             needs_update = true;
         }
 
-        // --- Mise à jour de la carte graphique ---
         // Si le chunk a été déplacé, il faut recalculer son relief
         if (needs_update) {
 			vec2 new_world_pos = vec2(index.x * chunk_size, index.y * chunk_size);
 			chunk.is_updating = true;
-            // Check in already computed chunks
-			
+            
+			// Check in already computed chunks
             if (terrain_memory.find(index) == terrain_memory.end()) {
 				// Lancement de la tâche asynchrone pour créer le chunk
 				float wx = new_world_pos.x;
@@ -200,31 +197,29 @@ void scene_structure::update_grass_trampling(vec3 const& barrel_moving_dir, vec3
     // Le rayon du tonneau converti en nombre de "pixels" sur la texture
     float radius_pixels = (crush_radius / chunk_size) * (resolution - 1);
     
-    // L'angle du mouvement (en radians). Puisqu'on est en GL_RGB32F,
-    // on peut stocker des valeurs négatives sans problème !
+    // L'angle du mouvement (en radians)
     float trample_angle = std::atan2(barrel_moving_dir.y, barrel_moving_dir.x);
 
     for (ActiveChunk& chunk : active_chunks) {
         bool modified_this_frame = false;
 
-        // 1. Convertir la position 3D globale du tonneau en coordonnées de pixels locaux (px, py) pour ce chunk
+        // Convertir la position 3D globale du tonneau en coordonnées de pixels locaux (px, py) pour ce chunk
         float px = ((barrel.model.translation.x - chunk.world_position.x) / chunk_size + 0.5f) * (resolution - 1);
         float py = ((barrel.model.translation.y - chunk.world_position.y) / chunk_size + 0.5f) * (resolution - 1);
 
-        // 2. OPTIMISATION EXTRÊME : Si la trace du tonneau (px +/- radius) ne touche 
+        // OPTIMISATION : Si la trace du tonneau (px +/- radius) ne touche 
         // pas du tout cette grille (qui va de 0 à resolution-1), on passe au chunk suivant !
         if (px + radius_pixels < 0 || px - radius_pixels >= resolution ||
             py + radius_pixels < 0 || py - radius_pixels >= resolution) {
             continue; 
         }
 
-        // 3. Définir le petit carré de pixels à modifier (Bounding Box)
+        // Définir la Bounding Box à modifier
         int x_min = std::max(0, (int)std::floor(px - radius_pixels));
         int x_max = std::min(resolution - 1, (int)std::ceil(px + radius_pixels));
         int y_min = std::max(0, (int)std::floor(py - radius_pixels));
         int y_max = std::min(resolution - 1, (int)std::ceil(py + radius_pixels));
 
-        // 4. On ne boucle QUE sur les pixels sous le tonneau
         for (int y = y_min; y <= y_max; ++y) {
             for (int x = x_min; x <= x_max; ++x) {
 
@@ -234,7 +229,7 @@ void scene_structure::update_grass_trampling(vec3 const& barrel_moving_dir, vec3
 				float custom_squared_dist = 3.5f*front*front + right*right; // Distance personnalisée qui tient compte de la direction du mouvement
 				float radius_squared = radius_pixels*radius_pixels;
 
-                // Si on est bien dans le cercle du tonneau
+                // Si on est bien dans l'ellipse du tonneau
                 if (custom_squared_dist <= radius_squared) {
                     float intensity = 1.0f - custom_squared_dist/radius_squared * custom_squared_dist/radius_squared; // Intensité plus forte au centre, décroissant vers les bords (puissance 4 pour un effet net)
 
@@ -247,7 +242,7 @@ void scene_structure::update_grass_trampling(vec3 const& barrel_moving_dir, vec3
             }
         }
 
-        // 5. On renvoie les données à la carte graphique UNIQUEMENT si ce chunk a été touché !
+        // On renvoie les données à la carte graphique UNIQUEMENT si ce chunk a été touché !
         if (modified_this_frame) {
             chunk.heightmap.update(chunk.chunk->data);
         }
@@ -257,9 +252,10 @@ void scene_structure::update_grass_trampling(vec3 const& barrel_moving_dir, vec3
 void scene_structure::update_fireflies(float dt) {
     float const planar_speed = 0.5f;
     float const max_turn_angle = Pi / 6.0f; // Max 30 degrés de virage par seconde
-
-	if (norm(fireflies_center - vec3{barrel.model.translation.x, barrel.model.translation.y, 0.0f}) > fog_radius/2.0f) {
-		fireflies_target_velocity = (vec3{barrel.model.translation.x, barrel.model.translation.y, 0.0f} - fireflies_center)/(fog_radius/10.0f);
+	vec3 to_barrel = vec3{barrel.model.translation.x, barrel.model.translation.y, 0.0f} - fireflies_center;
+	float dist_to_barrel = norm(to_barrel);
+	if (dist_to_barrel > fog_radius/2.0f) {
+		fireflies_target_velocity = normalize(to_barrel)*(dist_to_barrel-fog_radius/2.0f + 4.0f)/(fog_radius/20.0f);
 	} else {
 		fireflies_target_velocity = vec3{0.0f, 0.0f, 0.0f};
 	}
@@ -306,6 +302,7 @@ void scene_structure::update_fireflies(float dt) {
                 f.velocity.z + heigh_variation
             };
         }
+
 		// ------------------ Stabalize altitude ----------------
         float ground_h = get_terrain_height(f.position.x + fireflies_center.x, f.position.y + fireflies_center.y);
         float min_h = ground_h + 0.6f;
@@ -320,6 +317,8 @@ void scene_structure::update_fireflies(float dt) {
 		// ------------------ Stay in the fog area ----------------
         vec2 to_center = { -f.position.x, -f.position.y };
 		float dist_to_center = norm(to_center);
+		vec3 to_barrel = barrel.model.translation - (f.position + fireflies_center);
+        float dist_to_barrel = norm(to_barrel);
         float recall_radius = fog_radius - 7.0f;
 
         if (dist_to_center > recall_radius) {
@@ -356,7 +355,7 @@ void scene_structure::update_fireflies(float dt) {
 			int cohesion_count = 0;
 			int alignment_count = 0;
 
-			// Les 3 rayons imbriqués (ajustables selon la taille visuelle de tes lucioles)
+			// Les 3 rayons imbriqués
 			float const cohesion_radius = 4.0f;
 			float const alignment_radius = 2.0f;
 			float const separation_radius = 0.3f;
@@ -405,11 +404,11 @@ void scene_structure::update_fireflies(float dt) {
 				}
 			}
 
-			float border_panic = 0.0f;
-            if (dist_to_center > recall_radius - panic_zone) {
-                border_panic = (dist_to_center - (recall_radius - panic_zone)) / panic_zone;
-                border_panic = std::min(border_panic, 1.0f); // On cape à 1.0
-            }
+			float panic = 0.0f;
+			if (dist_to_barrel < panic_zone) {
+				panic = (panic_zone - dist_to_barrel) / panic_zone;
+				panic = std::min(panic, 1.0f);
+			}
 
 			if (cohesion_count > 0) {
 				// Moyennes
@@ -424,21 +423,25 @@ void scene_structure::update_fireflies(float dt) {
 				if (norm(cohesion_steer) > 0.001f)   cohesion_steer   = normalize(cohesion_steer) * planar_speed;
 				if (norm(separation_steer) > 0.001f) separation_steer = normalize(separation_steer) * planar_speed;
 
-				// LES POIDS : C'est ici que tu définis la "personnalité" de ton essaim
-				float current_w_alignment = w_alignment * (1.0f - border_panic);
-				float current_w_cohesion  = w_cohesion  * (1.0f - border_panic);
-				float current_w_separation = w_separation + (border_panic * 2.0f);
+				float current_w_alignment = w_alignment * (1.0f - panic);
+				float current_w_cohesion  = w_cohesion  * (1.0f - panic);
+				float current_w_separation = w_separation + (panic * 2.0f);
 
 				// On applique ces comportements comme des forces sur la vélocité actuelle
 				f.velocity += (separation_steer * current_w_separation 
 							+ alignment_steer * current_w_alignment 
 							+ cohesion_steer * current_w_cohesion) * dt;
 			}
+
+			if (dist_to_center > recall_radius) {
+				vec2 to_center_dir = normalize(to_center);
+				vec3 tangential_dir = vec3{-to_center_dir.y, to_center_dir.x, 0.0f}; // Perpendicular in the XY plane
+				float tangential_reduction = std::min(1.0f, (dist_to_center - recall_radius) / 5.0f);
+				f.velocity -= tangential_dir * dot(f.velocity, tangential_dir) * tangential_reduction; // Réduction de la composante tangentielle pour éviter les trajectoires en spirale
+			}
 		}
 
 		// ------------------- Repulsion from barrel ----------------
-		vec3 to_barrel = barrel.model.translation - (f.position + fireflies_center);
-        float dist_to_barrel = norm(to_barrel);
         if (dist_to_barrel < 1.5f) {
             to_barrel = to_barrel / dist_to_barrel;
             float repulsion_strength = planar_speed / (dist_to_barrel) * 8.0f; // Stronger repulsion when closer
@@ -797,6 +800,6 @@ void scene_structure::display_info()
 
 	std::cout << "\nSCENE INFO:" << std::endl;
 	std::cout << "-----------------------------------------------" << std::endl;
-	std::cout << "Example of scene to start a project." << std::endl;
+	std::cout << "Grass trampling project" << std::endl;
 	std::cout << "-----------------------------------------------\n" << std::endl;
 }
