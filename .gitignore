@@ -1,2 +1,6 @@
 # Do not commit build artifacts
 build/
+
+# Ignore executable and Imgui configuration
+imgui.ini
+project
