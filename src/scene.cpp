@@ -1,5 +1,6 @@
 #include "scene.hpp"
 #include "grass.hpp"
+#include <chrono>
 
 
 using namespace cgp;
@@ -8,6 +9,7 @@ using namespace cgp;
 // Sets up the camera, 3D scene elements, and the image animation system
 void scene_structure::initialize()
 {
+	auto init_start = std::chrono::high_resolution_clock::now();
 	
 	std::cout << "Start function scene_structure::initialize()" << std::endl;
 
@@ -43,13 +45,19 @@ void scene_structure::initialize()
 		{0,0,1} /* direction of the "up" vector */
 	);
 
+	auto init_end = std::chrono::high_resolution_clock::now();
+	auto init_duration = std::chrono::duration<double, std::milli>(init_end - init_start).count();
+	
 	std::cout << "End function scene_structure::initialize()" << std::endl;
+	std::cout << "[TIMING] Initialization completed in " << init_duration << " ms" << std::endl;
 }
 
 // This function is called permanently at every new frame
 // Note that you should avoid having costly computation and large allocation defined there. This function is mostly used to call the draw() functions on pre-existing data.
 void scene_structure::display_frame()
 {
+	auto frame_start = std::chrono::high_resolution_clock::now();
+	
     camera_projection.aspect_ratio = window.aspect_ratio();
 	float dt = timer.update();
 
@@ -67,15 +75,32 @@ void scene_structure::display_frame()
 
 	if (moved) {
 		vec3 barrel_right_dir = -player.barrel.model.rotation.matrix_col_y();
+		auto grass_update_start = std::chrono::high_resolution_clock::now();
 		terrain_system.update_grass_trampling(player.barrel.model.translation, player.crush_radius, player.moving_dir, barrel_right_dir);
+		auto grass_update_end = std::chrono::high_resolution_clock::now();
+		accumulated_grass_update_time += std::chrono::duration<double, std::milli>(grass_update_end - grass_update_start).count();
 	}
+	
+	auto chunks_update_start = std::chrono::high_resolution_clock::now();
 	terrain_system.update_chunks(player.barrel.model.translation);
+	auto chunks_update_end = std::chrono::high_resolution_clock::now();
+	double chunks_update_time = std::chrono::duration<double, std::milli>(chunks_update_end - chunks_update_start).count();
+	accumulated_chunks_update_time += chunks_update_time;
+	
+	if (chunks_update_time > 3.0) {
+		std::cout << "[WARNING] Chunks update time exceeded threshold: " << chunks_update_time << " ms" << std::endl;
+	}
+	
 	terrain_system.update_wind(timer.t, dt);
 
+	auto firefly_update_start = std::chrono::high_resolution_clock::now();
 	firefly_swarm.update(dt, player.barrel.model.translation, terrain_system);
-	
+	auto firefly_update_end = std::chrono::high_resolution_clock::now();
+	accumulated_firefly_update_time += std::chrono::duration<double, std::milli>(firefly_update_end - firefly_update_start).count();
 
 	// Draw the 3D reference frame axes if enabled
+	auto draw_start = std::chrono::high_resolution_clock::now();
+	
 	if (gui.display_frame)
 		draw(global_frame, environment);
 
@@ -89,6 +114,54 @@ void scene_structure::display_frame()
 	player.draw(environment, gui.display_wireframe);
 	terrain_system.draw(environment, cam_pos, cam_front, timer.t, gui.display_wireframe);
 	firefly_swarm.draw(environment, cam_right, cam_up);
+	
+	auto draw_end = std::chrono::high_resolution_clock::now();
+	accumulated_draw_time += std::chrono::duration<double, std::milli>(draw_end - draw_start).count();
+	
+	// Measure GPU synchronization time
+	auto gpu_wait_start = std::chrono::high_resolution_clock::now();
+	glFinish(); // Force GPU to complete all pending commands
+	auto gpu_wait_end = std::chrono::high_resolution_clock::now();
+	double gpu_wait_time = std::chrono::duration<double, std::milli>(gpu_wait_end - gpu_wait_start).count();
+	accumulated_gpu_wait_time += gpu_wait_time;
+
+	// Frame timing and statistics
+	auto frame_end = std::chrono::high_resolution_clock::now();
+	auto frame_duration = std::chrono::duration<double, std::milli>(frame_end - frame_start).count();
+	accumulated_frame_time += frame_duration;
+	
+	frame_count_since_reset++;
+	time_since_last_stats_print += dt;
+	
+	// Print statistics every 20 seconds
+	if (time_since_last_stats_print >= STATS_PRINT_INTERVAL) {
+		double avg_chunks_time = accumulated_chunks_update_time / frame_count_since_reset;
+		double avg_grass_time = accumulated_grass_update_time / frame_count_since_reset;
+		double avg_firefly_time = accumulated_firefly_update_time / frame_count_since_reset;
+		double avg_draw_time = accumulated_draw_time / frame_count_since_reset;
+		double avg_gpu_wait_time = accumulated_gpu_wait_time / frame_count_since_reset;
+		double avg_frame_time = accumulated_frame_time / frame_count_since_reset;
+		
+		std::cout << "\n[TIMING STATISTICS - Averaged over " << frame_count_since_reset << " frames (" 
+				  << time_since_last_stats_print << " seconds)]" << std::endl;
+		std::cout << "  Chunks update time:     " << avg_chunks_time << " ms" << std::endl;
+		std::cout << "  Grass update time:      " << avg_grass_time << " ms" << std::endl;
+		std::cout << "  Firefly update time:    " << avg_firefly_time << " ms" << std::endl;
+		std::cout << "  GPU drawing time:       " << avg_draw_time << " ms" << std::endl;
+		std::cout << "  GPU wait time:          " << avg_gpu_wait_time << " ms" << std::endl;
+		std::cout << "  Total frame time:       " << avg_frame_time << " ms" << std::endl;
+		std::cout << "  Estimated FPS:          " << (1000.0 / avg_frame_time) << " fps" << std::endl;
+		
+		// Reset accumulators
+		accumulated_chunks_update_time = 0.0;
+		accumulated_grass_update_time = 0.0;
+		accumulated_firefly_update_time = 0.0;
+		accumulated_draw_time = 0.0;
+		accumulated_gpu_wait_time = 0.0;
+		accumulated_frame_time = 0.0;
+		frame_count_since_reset = 0;
+		time_since_last_stats_print = 0.0;
+	}
 }
 
 

@@ -71,6 +71,21 @@ struct scene_structure : cgp::scene_inputs_generic {
     TerrainSystem terrain_system;
     FireflySwarm firefly_swarm;
 
+	// ****************************** //
+	// Timing statistics
+	// ****************************** //
+	// Accumulated frame times (in milliseconds)
+	double accumulated_chunks_update_time = 0.0;
+	double accumulated_grass_update_time = 0.0;
+	double accumulated_firefly_update_time = 0.0;
+	double accumulated_draw_time = 0.0;
+	double accumulated_gpu_wait_time = 0.0;
+	double accumulated_frame_time = 0.0;
+	
+	// Counters and tracking
+	int frame_count_since_reset = 0;
+	double time_since_last_stats_print = 0.0;
+	const double STATS_PRINT_INTERVAL = 20.0; // Print statistics every 20 seconds
 
 	// ****************************** //
 	// Callback functions
