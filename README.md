@@ -4,7 +4,7 @@ An interactive 3D graphics application featuring a physics-driven barrel with re
 
 **Key Highlights:**
 - 🌾 **Highly Interactive Grass** — Real-time deformation with physics-based trampling and dynamic wind simulation
-- 🎯 **Optimized Chunking & Instancing** — Efficient rendering of 80,000 grass instances per chunk with LOD streaming
+- 🎯 **Optimized Chunking & Instancing** — Efficient rendering of 80,000 grass instances per chunk with parallel background loading
 - 🐛 **Realistic Boid Behaviors** — 250+ autonomous fireflies with spatial partitioning for authentic emergent swarm dynamics
 
 ---
@@ -427,41 +427,6 @@ draw_all_subsystems()
 **Challenge:** Render 5×5 km terrain with 80,000 grass blades per chunk without exceeding frame budget.
 
 **Solution:** Chunking + hardware instancing + frustum culling + limited loading of new chunks per frame
-
-**Chunking Efficiency:**
-
-```cpp
-// Only active chunks are in VRAM; inactive cached in RAM
-for (int i = 0; i < 5; ++i) {
-    for (int j = 0; j < 5; ++j) {
-        if (active_chunks[i*5 + j].is_in_view) {
-            draw_instanced(grass_mesh, 80000, transforms_buffer);
-        }
-    }
-}
-// Estimated: 2M triangles per frame (25 chunks × 80k instances)
-// With instancing: 1 GPU call per chunk type instead of 80k calls
-```
-
-**Hardware Instancing Code:**
-```cpp
-// Vertex shader (grass.vert)
-#version 330
-layout(location = 0) in vec3 vertex_position;
-layout(location = 1) in vec2 vertex_uv;
-layout(location = 2) in mat4 instance_transform;  // Per-instance
-
-uniform sampler2D heightmap;
-uniform sampler2D grass_size_map;  // Height variation texture
-
-void main() {
-    vec3 world_pos = (instance_transform * vec4(vertex_position, 1.0)).xyz;
-    float height = texture(heightmap, uv).r;
-    float blade_height = texture(grass_size_map, uv).r;
-    
-    gl_Position = projection * view * vec4(world_pos + height * normal, 1.0);
-}
-```
 
 **Memory Layout:**
 - Heightmap: 64×64 RGB texture ≈ 48KB per chunk
