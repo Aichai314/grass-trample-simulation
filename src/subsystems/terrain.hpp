@@ -63,7 +63,6 @@ struct TerrainSystem {
     std::vector<PendingTask> pending_tasks;
 
     void initialize();
-    float get_terrain_height(float x, float y);
     void update_chunks(vec3 const& barrel_position);
     void update_grass_trampling(vec3 const& barrel_pos, float crush_radius, vec3 const& barrel_moving_dir, vec3 const& barrel_right_dir);
     // Le draw prendra le vent et la position de la caméra pour le Frustum Culling

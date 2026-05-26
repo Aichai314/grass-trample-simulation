@@ -20,5 +20,5 @@ struct BarrelController {
 
     void initialize();
     bool update_physics(float dt, cgp::input_devices const& inputs);
-    void draw(cgp::environment_generic_structure const& environment, bool wireframe);
+    void draw(cgp::environment_generic_structure const& environment, bool wireframe) const;
 };

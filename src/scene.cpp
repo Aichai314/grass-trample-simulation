@@ -19,11 +19,6 @@ void scene_structure::initialize()
 	// Create 3D coordinate frame (x, y, z axes) for visual reference
 	global_frame.initialize_data_on_gpu(mesh_primitive_frame());
 
-	// Initialize the shapes of the scene
-	// ***************************************** //
-
-	gui.display_frame = true;
-
 	// ======== INITIALIZE SUBSYSTEMS ======== //
 	player.initialize();
 	terrain_system.initialize();
@@ -61,14 +56,6 @@ void scene_structure::display_frame()
     camera_projection.aspect_ratio = window.aspect_ratio();
 	float dt = timer.update();
 
-	// Update the environment information (camera position, light position, background color, etc.) that will be sent to the shaders
-	environment.camera_projection = camera_projection.matrix();
-	environment.camera_view = camera_control.camera_model.matrix_view();
-	environment.light = camera_control.camera_model.position();
-	environment.background_color = terrain_system.fog_color;
-	environment.uniform_generic.uniform_vec3["fog_color"] = terrain_system.fog_color;
-	environment.uniform_generic.uniform_float["fog_radius"] = terrain_system.fog_radius;
-
 	// ====== UPDTATE SUBSYSTEMS ====== //
 	bool moved = player.update_physics(dt, inputs);
 	camera_control.update_target_position(player.barrel.model.translation);
@@ -98,13 +85,18 @@ void scene_structure::display_frame()
 	auto firefly_update_end = std::chrono::high_resolution_clock::now();
 	accumulated_firefly_update_time += std::chrono::duration<double, std::milli>(firefly_update_end - firefly_update_start).count();
 
-	// Draw the 3D reference frame axes if enabled
-	auto draw_start = std::chrono::high_resolution_clock::now();
-	
-	if (gui.display_frame)
-		draw(global_frame, environment);
+	// =========== Update the environment information that will be sent to the shaders ========== //
+	environment.camera_projection = camera_projection.matrix();
+	environment.camera_view = camera_control.camera_model.matrix_view();
+	environment.light = camera_control.camera_model.position();
+	environment.background_color = terrain_system.fog_color;
+	environment.uniform_generic.uniform_vec3["fog_color"] = terrain_system.fog_color;
+	environment.uniform_generic.uniform_float["fog_radius"] = terrain_system.fog_radius;
+
 
 	// ========= DRAW SUBSYSTEMS ======== //
+	auto draw_start = std::chrono::high_resolution_clock::now();
+
 	auto const& camera = camera_control.camera_model;
 	vec3 const cam_pos = camera.position();
 	vec3 const cam_front = camera.front();
@@ -167,7 +159,6 @@ void scene_structure::display_frame()
 
 void scene_structure::display_gui()
 {
-	ImGui::Checkbox("Frame", &gui.display_frame);
 	ImGui::Checkbox("Wireframe", &gui.display_wireframe);
 	ImGui::Checkbox("Herd behavior for fireflies", &firefly_swarm.herd_behavior);
 }

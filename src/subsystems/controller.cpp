@@ -98,7 +98,7 @@ bool BarrelController::update_physics(float dt, cgp::input_devices const& inputs
     return moved;
 }
 
-void BarrelController::draw(cgp::environment_generic_structure const& environment, bool wireframe) {
+void BarrelController::draw(cgp::environment_generic_structure const& environment, bool wireframe) const {
     cgp::draw(barrel, environment);
 
     if (wireframe) {
