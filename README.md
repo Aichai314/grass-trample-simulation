@@ -2,6 +2,9 @@
 
 An interactive 3D graphics application featuring a physics-driven barrel with real-time grass deformation, procedurally-generated terrain, and autonomous firefly swarm behaviors. Built as the final project for a Computer Graphics coursework using C++17, OpenGL 3.3, and advanced GPU optimization techniques.
 
+Live demo:
+![Live Demo](images/demo.gif)
+
 **Key Highlights:**
 - 🌾 **Highly Interactive Grass** — Real-time deformation with physics-based trampling and dynamic wind simulation
 - 🎯 **Optimized Chunking & Instancing** — Efficient rendering of 80,000 grass instances per chunk with parallel background loading
@@ -528,7 +531,7 @@ root/
 On a typical machine (RTX 4060 laptop, Intel i7-13620H), the application achieves:
 - **Frame rate:** 60+ FPS (1080p, unlimited FPS)
 - **GPU time:** ~12ms per frame
-- **CPU time:** ~3ms per frame (including physics & boid updates with some spikes during chunk loading but cannot go higher than 10ms (max 2 chunk load per frame))
+- **CPU time:** ~3ms per frame (including physics & boid updates). Controlled CPU spikes capped at ~10ms via throttled asynchronous chunk loading (maximum 2 chunks initialized per frame).
 
 ---
 

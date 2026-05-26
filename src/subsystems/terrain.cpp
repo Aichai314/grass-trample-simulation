@@ -222,7 +222,7 @@ void TerrainSystem::update_chunks(vec3 const& barrel_position) {
                         create_grass_size_map(wx, wy, cs) 
                     };
                 });
-				pending_tasks.push_back({&chunk, index, new_world_pos, std::move(future_chunk)});
+				pending_tasks.push_back({&chunk, new_world_pos, std::move(future_chunk)});
 			} else {
 				// Si déjà en mémoire, on met à jour directement (cas très rapide, pas besoin d'asynchrone)
 				chunk.chunk = &memory[index];

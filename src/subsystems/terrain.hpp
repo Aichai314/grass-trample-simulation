@@ -37,7 +37,6 @@ struct ActiveChunk {
 
 struct PendingTask {
     ActiveChunk* ac;
-    ChunkIndex new_index;
     vec2 new_world_pos;
     std::future<Chunk> future_data;
 };
