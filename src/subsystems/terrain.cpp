@@ -86,7 +86,7 @@ void TerrainSystem::initialize() {
     memory.reserve(10000); // Reserve memory for 10 000 chunks (adjust as needed)
 
 	mesh terrain_mesh = mesh_primitive_grid({ -chunk_size/2,-chunk_size/2,0 }, { chunk_size/2,-chunk_size/2,0 },
-		{ chunk_size/2,chunk_size/2,0 }, { -chunk_size/2,chunk_size/2,0 }, 50, 50);
+		{ chunk_size/2,chunk_size/2,0 }, { -chunk_size/2,chunk_size/2,0 }, 64, 64);
 	//deform_terrain(terrain_mesh);
 	terrain.initialize_data_on_gpu(terrain_mesh);
 	terrain.material.color = vec3{79, 53, 7}/255.0f;
@@ -104,6 +104,8 @@ void TerrainSystem::initialize() {
 	grass.initialize_data_on_gpu(grass_struct.create_blade_mesh(4));
 	grass.supplementary_texture["windmap"].load_and_initialize_texture_2d_on_gpu(project::path + "assets/perlin_512.png", GL_REPEAT, GL_REPEAT);
 	grass.material.phong.specular = 0.05f;
+    grass.material.phong.ambient = 0.7f; // very high ambient to avoid dark blades of grass
+    grass.material.phong.diffuse = 0.28f;
 	grass.material.phong.specular_exponent = 10.0f;
 	grass.material.texture_settings.two_sided = true;
 

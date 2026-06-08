@@ -86,8 +86,8 @@ void main()
 	// Unit direction toward the light
 	vec3 L = normalize(light-fragment.position);
 
-	// --- (Custom Half-Lambert Wrap Lighting) ---
-	float diffuse_component = dot(N, L) * 0.4 + 0.6;
+	// Diffuse component
+	float diffuse_component = max(dot(N, L), 0.0);
 
 	// Specular coefficient
 	float specular_component = 0.0;

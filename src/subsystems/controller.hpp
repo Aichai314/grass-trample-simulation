@@ -12,7 +12,7 @@ struct BarrelController {
     // Physique
     float vel = 0.0f;
     float const rotation_speed = Pi/2; // en radians par seconde
-    float const base_acc = 2.0f;
+    float const base_acc = 2.5f;
     float const g = 7.5f; 
     float const friction_coeff = 0.5f;
     vec3 smoothed_normal = {0.0f, 0.0f, 1.0f};

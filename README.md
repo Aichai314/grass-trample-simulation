@@ -100,6 +100,9 @@ Execute the compiled binary to see the interactive scene. The barrel starts at t
 **Wide terrain view showing 5×5 chunk grid:**
 ![Chunks Demo](images/chunks_demo.png)
 
+**Zoomed-out view of Frustum culling on 11*11 chunk grid:**
+![Frustum Culling Demo](images/culling_demo.png)
+
 **Close-up of grass deformation showing height variation and wind animation:**
 ![Grass Demo](images/grass_demo.png)
 
@@ -551,6 +554,6 @@ This project is part of a Computer Graphics coursework and is provided as-is for
 
 ---
 
-**Last Updated:** May 2026  
+**Last Updated:** June 2026  
 **Status:** Final submission (complete and tested)  
 **Build Status:** ✅ Compiles on Linux/macOS/Windows with CMake 3.16+

@@ -37,8 +37,10 @@ bool BarrelController::update_physics(float dt, cgp::input_devices const& inputs
     float h_droite = get_terrain_height(bx + eps, by);
     float h_bas    = get_terrain_height(bx, by - eps);
     float h_haut   = get_terrain_height(bx, by + eps);
-	// Approximate terrain normal using central differences
-    vec3 raw_normal = normalize(vec3(h_gauche - h_droite, h_bas - h_haut, 2.0f * eps));
+	// Approximate terrain normal using local tangent vectors in the x and y directions
+    vec3 tangent_x = vec3(2.0f * eps, 0.0f, h_droite - h_gauche);
+	vec3 tangent_y = vec3(0.0f, 2.0f * eps, h_haut - h_bas);
+	vec3 raw_normal = normalize(cross(tangent_x, tangent_y));
 	smoothed_normal = normalize(cgp::interpolation_linear(0.25f, smoothed_normal, raw_normal));
 
 	vec3 barrel_right_dir = -barrel.model.rotation.matrix_col_y(); // direction droite du tonneau	
@@ -99,6 +101,9 @@ bool BarrelController::update_physics(float dt, cgp::input_devices const& inputs
 }
 
 void BarrelController::draw(cgp::environment_generic_structure const& environment, bool wireframe) const {
+	glUseProgram(barrel.shader.id);
+	mat3 model_normal = cgp::transpose(cgp::inverse(barrel.model.rotation.matrix()));
+	opengl_uniform(barrel.shader, "model_normal", model_normal);
     cgp::draw(barrel, environment);
 
     if (wireframe) {
