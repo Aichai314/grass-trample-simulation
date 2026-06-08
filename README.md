@@ -449,7 +449,7 @@ draw_all_subsystems()
 
 **Complexity Analysis:**
 - **Brute Force:** O(n²)
-- **Spatial Grid:** O(nlog(n)) -> Scalse much better with more agents
+- **Spatial Grid:** O(nlog(n)) -> Scales much better with more agents
 
 
 **Visual Result:**
